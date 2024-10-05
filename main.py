@@ -1,11 +1,11 @@
 import socket
 import nmap
-import requests
 import threading
 
 class VulnerabilityScanner:
-    def __init__(self, targets):
+    def __init__(self, targets, scan_type='-sV'):
         self.targets = targets
+        self.scan_type = scan_type
         self.scan_results = {}
         self.nm = nmap.PortScanner()
 
@@ -19,8 +19,8 @@ class VulnerabilityScanner:
             return None
 
     def scan_ports(self, ip):
-        print(f"[+] Scanning ports on {ip}")
-        self.nm.scan(ip, '1-1024', '-sV')
+        print(f"[+] Scanning ports on {ip} with options '{self.scan_type}'")
+        self.nm.scan(ip, '1-1024', arguments=self.scan_type)
         if ip in self.nm.all_hosts():
             return self.nm[ip]
         else:
@@ -33,7 +33,7 @@ class VulnerabilityScanner:
             lport = port_info[proto].keys()
             for port in lport:
                 service = port_info[proto][port]['name']
-                version = port_info[proto][port]['version']
+                version = port_info[proto][port].get('version', '')
                 print(f"[+] Checking {service} {version} on port {port}")
                 vuln = self.lookup_vulnerability(service, version)
                 if vuln:
@@ -91,7 +91,7 @@ class VulnerabilityScanner:
                 for port in lport:
                     state = data['port_info'][proto][port]['state']
                     service = data['port_info'][proto][port]['name']
-                    version = data['port_info'][proto][port]['version']
+                    version = data['port_info'][proto][port].get('version', '')
                     print(f" - Port {port}/{proto} {state}: {service} {version}")
             if data['vulnerabilities']:
                 print("Vulnerabilities Found:")
@@ -100,14 +100,29 @@ class VulnerabilityScanner:
             else:
                 print("No known vulnerabilities found.")
 
-    def check_web_vulnerabilities(self, url):
-        # Simple test for SQL injection vulnerability
-        test_url = f"{url}/?id=1'"
-        response = requests.get(test_url)
-        if "SQL syntax" in response.text:
-            print(f"[!] Potential SQL Injection vulnerability at {test_url}")
-
 if __name__ == "__main__":
-    targets = input("Enter target domain name or ip address: ")
-    scanner = VulnerabilityScanner(targets)
+    # Example targets; replace with your actual targets
+    targets = ['example.com', 'scanme.nmap.org']
+    
+    # Prompt the user to select the scan type
+    print("Select the type of Nmap scan to perform:")
+    print("1. SYN Scan (-sS)")
+    print("2. Service Version Detection (-sV)")
+    print("3. OS Detection (-O)")
+    print("4. UDP Scan (-sU)")
+    print("5. Comprehensive Scan (-sC -sV -A)")
+    
+    scan_option = input("Enter the number of your choice (1-5): ")
+    
+    scan_types = {
+        '1': '-sS',
+        '2': '-sV',
+        '3': '-O',
+        '4': '-sU',
+        '5': '-sC -sV -A'
+    }
+    
+    scan_type = scan_types.get(scan_option, '-sV')  # Default to '-sV' if invalid input
+    
+    scanner = VulnerabilityScanner(targets, scan_type)
     scanner.run()
