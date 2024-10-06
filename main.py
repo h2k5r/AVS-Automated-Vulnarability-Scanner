@@ -1,6 +1,7 @@
 import socket
 import nmap
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 
 class VulnerabilityScanner:
     def __init__(self, targets, scan_type='-sV'):
@@ -16,9 +17,11 @@ class VulnerabilityScanner:
         self.scan_type = scan_type  # Nmap scan type options
 
     def resolve_target(self, target):
+        parsed_domain = urlparse(target)
+        parsed_target=parsed_domain.netloc
         """Resolve the domain name to an IP address."""
         try:
-            ip_address = socket.gethostbyname(target)
+            ip_address = socket.gethostbyname(parsed_target)
             print(f"[+] Resolved {target} to {ip_address}")
             return ip_address
         except socket.error as err:
@@ -59,6 +62,7 @@ class VulnerabilityScanner:
         """Lookup known vulnerabilities from a predefined database."""
         # Placeholder for vulnerability lookup logic
         # In practice, query a real vulnerability database or API
+
         known_vulns = {
             'ftp': {'vsftpd 2.3.4': 'CVE-2011-2523'},
             'ssh': {'openssh 7.2p2': 'CVE-2016-3115'},
@@ -72,6 +76,7 @@ class VulnerabilityScanner:
 
     def scan_target(self, target):
         """Perform the scanning process for a single target."""
+
         ip = self.resolve_target(target)
         if not ip:
             return
@@ -86,13 +91,13 @@ class VulnerabilityScanner:
         }
 
     def run(self):
-        """Run the scanner concurrently on all targets."""
+        #"""Run the scanner concurrently on all targets."""
         with ThreadPoolExecutor(max_workers=10) as executor:
             executor.map(self.scan_target, self.targets)
         self.generate_report()
 
     def generate_report(self):
-        """Generate a detailed report of the scan results."""
+        #"""Generate a detailed report of the scan results."""
         print("\n[+] Vulnerability Scan Report")
         for target, data in self.scan_results.items():
             print(f"\nTarget: {target}")
@@ -113,7 +118,7 @@ class VulnerabilityScanner:
                 print("No known vulnerabilities found.")
 
 if __name__ == "__main__":
-    # Replace with your actual targets
+    # Input Targets to scan
     targets = input("Enter Domain name or IP address of the target/s: ")
 
     # Select the scan type
