@@ -1,22 +1,16 @@
 import socket
 import nmap
+import requests
 from concurrent.futures import ThreadPoolExecutor
 
 class VulnerabilityScanner:
     def __init__(self, targets, scan_type='-sV'):
-        """
-        Initializes the VulnerabilityScanner.
-
-        :param targets: List of domain names or IP addresses to scan.
-        :param scan_type: Nmap scan type options (default is '-sV').
-        """
         self.targets = targets
         self.scan_results = {}
         self.nm = nmap.PortScanner()
-        self.scan_type = scan_type  # Nmap scan type options
+        self.scan_type = scan_type
 
     def resolve_target(self, target):
-        """Resolve the domain name to an IP address."""
         try:
             ip_address = socket.gethostbyname(target)
             print(f"[+] Resolved {target} to {ip_address}")
@@ -26,9 +20,7 @@ class VulnerabilityScanner:
             return None
 
     def scan_ports(self, ip):
-        """Scan ports on the given IP address using the specified scan type."""
         print(f"[+] Scanning ports on {ip} with scan type '{self.scan_type}'")
-        # Scanning common ports (1-1024), can be adjusted
         self.nm.scan(ip, '1-1024', self.scan_type)
         if ip in self.nm.all_hosts():
             return self.nm[ip]
@@ -36,40 +28,98 @@ class VulnerabilityScanner:
             print(f"[-] No scan results for {ip}")
             return None
 
+    def map_service_to_ecosystem_and_package(self, service_name):
+        """Map service names to OSV ecosystems and package names."""
+        service_name = service_name.lower()
+        # Example mappings
+        if 'apache httpd' in service_name or 'apache' in service_name:
+            return 'Debian', 'apache2'
+        elif 'nginx' in service_name:
+            return 'Debian', 'nginx'
+        elif 'openssh' in service_name:
+            return 'Debian', 'openssh'
+        elif 'vsftpd' in service_name:
+            return 'Debian', 'vsftpd'
+        elif 'ssh' in service_name:
+            return 'Debian', 'openssh'
+        elif 'ftp' in service_name:
+            return 'Debian', 'vsftpd'
+        elif 'mysql' in service_name:
+            return 'Debian', 'mysql-server'
+        elif 'postgresql' in service_name:
+            return 'Debian', 'postgresql'
+        elif 'iis' in service_name:
+            return 'Windows', 'iis'
+        elif 'ssl' in service_name or 'tls' in service_name:
+            return 'Debian', 'openssl'
+        # Add more mappings as needed
+        else:
+            return None, None
+
+    def lookup_vulnerability_osv(self, service, version):
+        """Lookup known vulnerabilities using the OSV.dev API by version number."""
+        ecosystem, package_name = self.map_service_to_ecosystem_and_package(service)
+        if not ecosystem or not package_name:
+            print(f"[-] Could not map service '{service}' to an OSV ecosystem and package.")
+            return None
+
+        query = {
+            "version": version,
+            "package": {
+                "name": package_name,
+                "ecosystem": ecosystem
+            }
+        }
+
+        try:
+            headers = {
+                'User-Agent': 'VulnerabilityScanner/1.0'
+            }
+            response = requests.post("https://api.osv.dev/v1/query", json=query, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if 'vulns' in data:
+                    vulnerabilities = []
+                    for vuln in data['vulns']:
+                        vuln_info = {
+                            'id': vuln.get('id'),
+                            'summary': vuln.get('summary', ''),
+                            'details': vuln.get('details', ''),
+                            'references': vuln.get('references', [])
+                        }
+                        vulnerabilities.append(vuln_info)
+                    return vulnerabilities
+                else:
+                    print(f"[+] No vulnerabilities found for {package_name} {version}")
+            else:
+                print(f"[-] OSV API request failed with status code {response.status_code}")
+        except requests.RequestException as e:
+            print(f"[-] Error querying OSV API: {e}")
+        return None
+
     def check_vulnerabilities(self, port_info):
         """Check for known vulnerabilities based on service and version."""
         vulnerabilities = []
         for proto in port_info.all_protocols():
             lport = port_info[proto].keys()
             for port in lport:
-                service = port_info[proto][port]['name']
-                version = port_info[proto][port]['version']
+                service = port_info[proto][port].get('product', '') or port_info[proto][port].get('name', '')
+                version = port_info[proto][port].get('version', '')
+                if not service or not version:
+                    continue
                 print(f"[+] Checking {service} {version} on port {port}")
-                vuln = self.lookup_vulnerability(service, version)
-                if vuln:
-                    vulnerabilities.append({
-                        'port': port,
-                        'service': service,
-                        'version': version,
-                        'vulnerability': vuln
-                    })
+
+                # Use the OSV lookup function
+                vulns = self.lookup_vulnerability_osv(service, version)
+                if vulns:
+                    for vuln in vulns:
+                        vulnerabilities.append({
+                            'port': port,
+                            'service': service,
+                            'version': version,
+                            'vulnerability': vuln
+                        })
         return vulnerabilities
-
-    def lookup_vulnerability(self, service, version):
-        """Lookup known vulnerabilities from a predefined database."""
-        # Placeholder for vulnerability lookup logic
-        # In practice, query a real vulnerability database or API
-
-        known_vulns = {
-            'ftp': {'vsftpd 2.3.4': 'CVE-2011-2523'},
-            'ssh': {'openssh 7.2p2': 'CVE-2016-3115'},
-            'http': {'apache httpd 2.4.49': 'CVE-2021-41773'},
-        }
-        service = service.lower()
-        version = version.lower()
-        if service in known_vulns and version in known_vulns[service]:
-            return known_vulns[service][version]
-        return None
 
     def scan_target(self, target):
         """Perform the scanning process for a single target."""
@@ -103,13 +153,21 @@ class VulnerabilityScanner:
                 lport = data['port_info'][proto].keys()
                 for port in sorted(lport):
                     state = data['port_info'][proto][port]['state']
-                    service = data['port_info'][proto][port]['name']
-                    version = data['port_info'][proto][port]['version']
+                    service = data['port_info'][proto][port].get('product', '') or data['port_info'][proto][port].get('name', '')
+                    version = data['port_info'][proto][port].get('version', '')
                     print(f" - Port {port}/{proto} {state}: {service} {version}")
             if data['vulnerabilities']:
                 print("Vulnerabilities Found:")
-                for vuln in data['vulnerabilities']:
-                    print(f" - {vuln['service']} {vuln['version']} on port {vuln['port']}: {vuln['vulnerability']}")
+                for vuln_data in data['vulnerabilities']:
+                    vuln = vuln_data['vulnerability']
+                    print(f" - {vuln_data['service']} {vuln_data['version']} on port {vuln_data['port']}:")
+                    print(f"   ID: {vuln['id']}")
+                    print(f"   Summary: {vuln['summary']}")
+                    print(f"   Details: {vuln['details']}")
+                    if vuln['references']:
+                        print("   References:")
+                        for ref in vuln['references']:
+                            print(f"     - {ref.get('url')}")
             else:
                 print("No known vulnerabilities found.")
 
