@@ -70,31 +70,14 @@ class VulnerabilityScanner:
                 "ecosystem": ecosystem
             }
         }
-
-        try:
-            headers = {
+        headers = {
                 'User-Agent': 'VulnerabilityScanner/1.0'
-            }
-            response = requests.post("https://api.osv.dev/v1/query", json=query, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                if 'vulns' in data:
-                    vulnerabilities = []
-                    for vuln in data['vulns']:
-                        vuln_info = {
-                            'id': vuln.get('id'),
-                            'summary': vuln.get('summary', ''),
-                            'details': vuln.get('details', ''),
-                            'references': vuln.get('references', [])
-                        }
-                        vulnerabilities.append(vuln_info)
-                    return vulnerabilities
-                else:
-                    print(f"[+] No vulnerabilities found for {package_name} {version}")
-            else:
-                print(f"[-] OSV API request failed with status code {response.status_code}")
-        except requests.RequestException as e:
-            print(f"[-] Error querying OSV API: {e}")
+                }
+        response = requests.post("https://api.osv.dev/v1/query", json=query, headers=headers)
+        if response.status_code == 200:
+                print("Vulnerabilities:", response.json())
+        else:
+                print("Failed:", response.status_code, response.text)
         return None
 
     def check_vulnerabilities(self, port_info):
