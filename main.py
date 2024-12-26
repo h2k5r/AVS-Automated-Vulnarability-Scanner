@@ -1,22 +1,16 @@
 import socket
 import nmap
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 class VulnerabilityScanner:
     def __init__(self, targets, scan_type='-sV'):
-        """
-        Initializes the VulnerabilityScanner.
-
-        :param targets: List of domain names or IP addresses to scan.
-        :param scan_type: Nmap scan type options (default is '-sV').
-        """
         self.targets = targets
         self.scan_results = {}
         self.nm = nmap.PortScanner()
-        self.scan_type = scan_type  # Nmap scan type options
+        self.scan_type = scan_type
 
     def resolve_target(self, target):
-        """Resolve the domain name to an IP address."""
         try:
             ip_address = socket.gethostbyname(target)
             print(f"[+] Resolved {target} to {ip_address}")
@@ -26,14 +20,25 @@ class VulnerabilityScanner:
             return None
 
     def scan_ports(self, ip):
-        """Scan ports on the given IP address using the specified scan type."""
         print(f"[+] Scanning ports on {ip} with scan type '{self.scan_type}'")
-        # Scanning common ports (1-1024), can be adjusted
         self.nm.scan(ip, '1-1024', self.scan_type)
         if ip in self.nm.all_hosts():
             return self.nm[ip]
         else:
             print(f"[-] No scan results for {ip}")
+            return None
+
+    def search_exploit(self, service, version):
+        """Search for exploits using SearchSploit."""
+        try:
+            result = subprocess.run(
+                ["searchsploit", f"{service}"], #{version}" ],
+                capture_output=True,
+                text=True
+            )
+            return result.stdout
+        except Exception as e:
+            print(f"[-] Error running SearchSploit: {e}")
             return None
 
     def check_vulnerabilities(self, port_info):
@@ -42,34 +47,22 @@ class VulnerabilityScanner:
         for proto in port_info.all_protocols():
             lport = port_info[proto].keys()
             for port in lport:
-                service = port_info[proto][port]['name']
-                version = port_info[proto][port]['version']
+                service = port_info[proto][port].get('product', '') or port_info[proto][port].get('name', '')
+                version = port_info[proto][port].get('version', '')
+                if not service or not version:
+                    continue
                 print(f"[+] Checking {service} {version} on port {port}")
-                vuln = self.lookup_vulnerability(service, version)
-                if vuln:
+
+                # Use SearchSploit to find exploits
+                exploits = self.search_exploit(service, version)
+                if exploits:
                     vulnerabilities.append({
                         'port': port,
                         'service': service,
                         'version': version,
-                        'vulnerability': vuln
+                        'exploits': exploits
                     })
         return vulnerabilities
-
-    def lookup_vulnerability(self, service, version):
-        """Lookup known vulnerabilities from a predefined database."""
-        # Placeholder for vulnerability lookup logic
-        # In practice, query a real vulnerability database or API
-
-        known_vulns = {
-            'ftp': {'vsftpd 2.3.4': 'CVE-2011-2523'},
-            'ssh': {'openssh 7.2p2': 'CVE-2016-3115'},
-            'http': {'apache httpd 2.4.49': 'CVE-2021-41773'},
-        }
-        service = service.lower()
-        version = version.lower()
-        if service in known_vulns and version in known_vulns[service]:
-            return known_vulns[service][version]
-        return None
 
     def scan_target(self, target):
         """Perform the scanning process for a single target."""
@@ -103,17 +96,32 @@ class VulnerabilityScanner:
                 lport = data['port_info'][proto].keys()
                 for port in sorted(lport):
                     state = data['port_info'][proto][port]['state']
-                    service = data['port_info'][proto][port]['name']
-                    version = data['port_info'][proto][port]['version']
+                    service = data['port_info'][proto][port].get('product', '') or data['port_info'][proto][port].get('name', '')
+                    version = data['port_info'][proto][port].get('version', '')
                     print(f" - Port {port}/{proto} {state}: {service} {version}")
             if data['vulnerabilities']:
                 print("Vulnerabilities Found:")
-                for vuln in data['vulnerabilities']:
-                    print(f" - {vuln['service']} {vuln['version']} on port {vuln['port']}: {vuln['vulnerability']}")
+                for vuln_data in data['vulnerabilities']:
+                    print(f" - {vuln_data['service']} {vuln_data['version']} on port {vuln_data['port']}:")
+                    print(vuln_data['exploits'])
             else:
                 print("No known vulnerabilities found.")
 
+    def prompt_update_database(self):
+        """Ask the user if they want to update the SearchSploit database."""
+        choice = input("\nDo you want to update the SearchSploit database? (y/n): ").strip().lower()
+        if choice == 'y':
+            try:
+                print("[+] Updating SearchSploit database...")
+                subprocess.run(["searchsploit", "-u"], check=True)
+                print("[+] SearchSploit database updated successfully.")
+            except subprocess.CalledProcessError as e:
+                print(f"[-] Failed to update SearchSploit database: {e}")
+
 if __name__ == "__main__":
+    # Prompt user to update SearchSploit database
+    VulnerabilityScanner([]).prompt_update_database()
+
     # Input Targets to scan
     targets_input = input("Enter Domain name or IP address of the target(s) (separated by commas): ")
     targets = [target.strip() for target in targets_input.split(',')]
